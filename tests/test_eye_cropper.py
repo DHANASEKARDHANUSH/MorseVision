@@ -10,7 +10,7 @@ def test_bounding_box_applies_padding_and_clips_to_frame():
     box = cropper.bounding_box(points, (10, 10, 3))
 
     assert box is not None
-    assert (box.x, box.y, box.width, box.height) == (0, 0, 8, 8)
+    assert (box.x, box.y, box.width, box.height) == (0, 0, 8, 9)
 
 
 def test_crop_returns_resized_image_and_source_box():

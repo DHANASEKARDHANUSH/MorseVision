@@ -1,85 +1,128 @@
-# Morse Vision
+# MorseVision
 
-A local Python computer-vision project inspired by [Hello-Morse-OpenCV](https://github.com/raghavpatnecha/Hello-Morse-OpenCV). This repository is being built in stages as a foundation for an assistive communication system.
+MorseVision is a local computer-vision project being built in stages toward assistive communication. Its current stage collects labeled eye images from the existing webcam, face-landmark, and eye-cropping pipeline.
 
-## Stage 1
+## Current stage: Stage 2 — Eye-State Dataset Collection
 
-Stage 1 opens a webcam, detects faces and facial landmarks with MediaPipe Face Mesh, selects the largest detected face, extracts padded left and right eye crops, and displays those crops alongside the camera view. The camera view includes face and eye boxes, detection status, and rolling FPS. Press **Q** or **Esc** to exit.
+The collector reuses the eye crops produced by `EyeCropper`, validates that both eyes are available, standardizes them to the configured square size, and saves one image per eye with session metadata. Collection and storage stay on this computer.
 
-**CNN-based eye-state classification and Morse decoding are not implemented.** Stage 1 does not classify eyes as open or closed, record a dataset, or interpret blinks.
+### Labels
 
-## Requirements
+- **OPEN**: eye is clearly open.
+- **CLOSED**: eye is clearly closed.
+- **UNCERTAIN**: ambiguous, blurry, occluded, poorly framed, or otherwise unsuitable sample.
 
-- Python 3.10, 3.11, or 3.12 (64-bit recommended)
-- A webcam
-- A desktop session with OpenCV GUI support
+`UNCERTAIN` is a quarantine/review class. It is not intended to be a third class in the later binary OPEN/CLOSED training data. Review it separately before deciding whether any sample is usable.
 
-MediaPipe 0.10.21 is pinned because this stage uses its bundled `solutions.face_mesh` API. The project does not require dlib or a separately downloaded landmark model.
+## Environment setup
 
-## Installation
+This repository already has a `.venv` virtual environment. Activate that environment; do not create another one.
 
-From the project directory, create and activate a virtual environment in PowerShell:
+Windows PowerShell:
 
 ```powershell
-py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-If PowerShell does not find Python 3.11, use `py -3.10` or `py -3.12` if installed. On macOS or Linux, create/activate the environment with `python3 -m venv .venv` and `source .venv/bin/activate`, then run the two pip commands above.
+Windows Command Prompt:
 
-## Run
-
-```powershell
-python main.py
+```bat
+.venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
 ```
 
-Optional camera and crop settings:
+The install command adds the project’s current runtime dependencies to the existing environment. A webcam and a desktop session with OpenCV GUI support are required.
+
+## Start a collection session
+
+From the project root with `.venv` active:
 
 ```powershell
-python main.py --camera 1 --width 640 --height 480 --eye-size 160 --padding 0.25
+python main.py --collect --subject S01 --session S02 --lighting normal --pose straight
 ```
 
-Camera index 0 is the default. OpenCV treats the requested capture resolution as a preference; a camera or driver may provide a different size. A window shows the live frame with the primary face and eye boxes. A second window shows the left and right eye image arrays resized to `--eye-size`. When no face or eye crop is available, the status and crop preview indicate that. If opening or reading from the webcam fails, the program reports the issue and exits cleanly.
+Use anonymous subject and session identifiers. IDs may contain 1–32 letters, numbers, underscores, or hyphens, starting with a letter or number. The supported lighting values are `bright`, `normal`, and `dim`; supported pose values are `straight`, `left`, `right`, `up`, and `down`. These are manually assigned session-level descriptions, not automatically detected properties.
 
-## Project structure
+Optional capture settings:
+
+```powershell
+python main.py --collect --subject S02 --session S01 --lighting dim --pose left --eye-size 160 --cooldown-ms 200
+```
+
+`--eye-size` controls the square dimensions sent by the existing eye cropper. `--cooldown-ms` sets the minimum interval between accepted paired captures and defaults to 200 ms. The requested webcam resolution can also be set with `--width` and `--height`, and the camera device with `--camera`.
+
+Without `--collect`, `python main.py` continues to run the Stage 1 preview without saving images.
+
+## Controls and live display
+
+- **O**: save the current pair as OPEN.
+- **C**: save the current pair as CLOSED.
+- **U**: save the current pair as UNCERTAIN.
+- **Q** or **Esc**: quit.
+
+Each key event requests one capture. The app saves only when a face and both valid eye crops are available. It displays the session IDs, lighting and pose, current label, saved image counts by class, face/eye status, FPS, controls, and the latest capture result. The second window continues to show the actual left and right crop images. A missing face or eye rejects the requested capture with a status message and does not crash the session.
+
+## Dataset layout
 
 ```text
-data/
-  raw/open/             # Reserved for a later dataset stage
-  raw/closed/           # Reserved for a later dataset stage
-  processed/            # Reserved for later preprocessing
-models/
-  checkpoints/          # Reserved for future model training
-  exported/             # Reserved for future model export
-src/
-  camera.py             # Webcam capture and cleanup
-  face_detector.py      # Face Mesh inference and eye landmark selection
-  eye_cropper.py        # Padded eye boxes and crop image arrays
-  utils.py              # FPS and drawing helpers
-main.py                 # Webcam application entry point
-requirements.txt        # Stage 1 runtime dependencies
-tests/                  # Non-camera logic tests
+data/raw/
+├── open/
+├── closed/
+├── uncertain/
+└── metadata.csv
 ```
 
-## Current limitations
+Each accepted paired capture creates two separate JPEGs, for example:
 
-- Face Mesh landmarks are used to find eye regions; eye state is not determined.
-- The largest detected face is processed. Multi-person interaction is out of scope.
-- Crop boxes are axis-aligned and do not rotate to compensate for head tilt.
-- Camera availability and GUI behavior depend on the host operating system, camera driver, and desktop session.
-- The crop preview size can be configured, but lighting, framing, and focus affect landmark quality.
+```text
+data/raw/open/S01_S02_left_000001.jpg
+data/raw/open/S01_S02_right_000001.jpg
+```
 
-## Planned stages
+Images are saved locally under their label directory at the configured eye size. `data/raw/metadata.csv` has one row per image, with `image_path`, `label`, `subject_id`, `session_id`, `eye_side`, `timestamp`, `capture_id`, `lighting`, and `head_pose`. The paired left/right rows share a capture ID. Counts shown in the app are image counts, so each accepted pair adds two to its label.
 
-Later stages may add an eye-state dataset recorder, a small CNN and training workflow, ONNX export and OpenCV DNN inference, confidence and temporal analysis, calibration, Morse decoding, evaluation/optimization, and optional offline speech. These features are intentionally absent from Stage 1.
+The recorder scans existing filenames for the current subject and session at startup, continues with the next available capture number, and opens image paths exclusively. It will not overwrite an existing image. The cooldown reduces accidental rapid repeats; it does not rebalance or delete data. Generated data, including `metadata.csv`, is ignored by Git.
 
-## Basic tests
+## Recommended collection protocol
 
-The non-camera tests cover crop bounding/clipping, crop output validation, and FPS calculation. Run them from the project directory after installing the runtime dependencies and pytest:
+An initial target of roughly **8–12 subjects** and **3–5 sessions per subject** is a useful starting point, not a hard quota. Collect balanced OPEN and CLOSED examples while prioritizing diversity and subject separation over raw image count.
+
+Across sessions, vary bright, normal, and dim lighting; straight and slight left, right, up, or down poses; camera distance and framing; and glasses/no glasses where applicable. Include different participants and natural variation in eye shape, facial structure, and skin tone. Use a new session ID when collecting a distinct session condition. Avoid collecting thousands of near-identical frames. Normal blinks may be useful for later temporal testing, but should not be blindly labeled and dumped into the OPEN/CLOSED training data.
+
+Future evaluation should split by subject so that images of one person do not appear in both training and evaluation sets. This collector does not create any split.
+
+## Privacy
+
+Use anonymous subject IDs; do not put names, email addresses, phone numbers, or other personal information in IDs or filenames. The collector does not upload images or metadata to a cloud service. Keep collection local and obtain appropriate consent from participants.
+
+## Tests
+
+The deterministic tests cover crop geometry, dataset image validation, label/ID validation, unique numbering, metadata rows, counters, and cooldown. Run them from the project root in the active `.venv`:
 
 ```powershell
 python -m pip install pytest
 python -m pytest
 ```
+
+No fake webcam tests are used.
+
+## Current limitations
+
+- CNN classification is not implemented.
+- Morse decoding is not implemented.
+- Temporal modeling is not implemented.
+- Data augmentation is not implemented.
+- Automated subject-aware splitting is not implemented.
+- UNCERTAIN samples are stored for review and should not be blindly used as a training class.
+- Lighting and pose are session-level labels entered by the collector.
+
+## Roadmap
+
+1. **Stage 3:** Dataset inspection and preprocessing.
+2. **Stage 4:** CNN training.
+3. **Stage 5:** CNN evaluation.
+4. **Stage 6:** Real-time CNN inference.
+5. **Stage 7:** Temporal eye-state analysis.
+6. **Stage 8:** Morse decoding.
+7. **Stage 9:** ONNX deployment and optimization.
